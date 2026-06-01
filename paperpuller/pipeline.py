@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import time
 from datetime import date
 
 from .arxiv_client import fetch_recent_papers
@@ -10,6 +12,10 @@ from .llm import LlmEvaluator
 from .report import write_report
 
 
+def _info(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
+
+
 def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False) -> dict:
     db = Database(config.storage.sqlite_path)
     db.init()
@@ -18,6 +24,12 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
     evaluated_count = 0
     included_count = 0
     today = date.today()
+    started_at = time.monotonic()
+    _info(
+        f"[PaperPuller] 开始: 分类 {', '.join(config.arxiv.categories)}"
+        f" | 模型 {config.llm.model}"
+        f" | 回溯 {config.arxiv.fetch_days} 天"
+    )
     try:
         papers = fetch_recent_papers(
             config.arxiv.categories,
@@ -30,14 +42,22 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
             max_retries=config.llm.max_retries,
         )
         new_count = db.upsert_papers(papers)
+        _info(f"[Fetch] 共获取 {len(papers)} 篇，其中 {new_count} 篇为新论文")
 
         if not skip_llm:
             interest = config.interest_file.read_text(encoding="utf-8")
             evaluator = LlmEvaluator(config, interest)
-            for paper in db.unevaluated_papers(config.llm.model):
+            candidates = db.unevaluated_papers(config.llm.model)
+            total = len(candidates)
+            _info(f"[Eval] {total} 篇待评估")
+            for idx, paper in enumerate(candidates, start=1):
                 evaluation = evaluator.evaluate(paper)
                 db.save_evaluation(evaluation)
                 evaluated_count += 1
+                tags = ", ".join(evaluation.topic_tags)
+                _info(f"[Eval] [{idx}/{total}] {paper.arxiv_id} score={evaluation.score:.1f} tags=[{tags}]")
+        else:
+            _info("[Eval] 已跳过 (--skip-llm)")
 
         rows = db.report_rows(
             config.llm.model,
@@ -47,6 +67,7 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
         )
         included_count = len(rows)
         report_path = write_report(config, today, rows)
+        _info(f"[Report] {report_path} (含 {included_count} 篇)")
 
         email_status = "disabled"
         if config.email.enabled and not no_email:
@@ -54,10 +75,12 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
                 send_email(config, today, rows)
                 db.mark_email(today.isoformat(), "sent", config.email.receiver)
                 email_status = "sent"
+                _info(f"[Email] 发送成功 → {config.email.receiver}")
             except Exception as error:
                 db.mark_email(today.isoformat(), "failed", config.email.receiver, str(error))
                 errors.append(f"email: {error}")
                 email_status = "failed"
+                _info(f"[Email] 发送失败: {error}")
 
         status = "failed" if errors else "success"
         db.finish_run(
@@ -68,6 +91,11 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
             evaluated_count=evaluated_count,
             included_count=included_count,
             error_summary="; ".join(errors),
+        )
+        elapsed = time.monotonic() - started_at
+        _info(
+            f"[PaperPuller] 完成, 耗时 {elapsed:.1f}s"
+            f" | 获取{len(papers)} 新增{new_count} 评估{evaluated_count} 纳入{included_count}"
         )
         return {
             "status": status,

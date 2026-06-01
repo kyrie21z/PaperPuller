@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
 import time
 import xml.etree.ElementTree as ET
@@ -41,11 +42,16 @@ def fetch_recent_papers(
     for keyword in keyword_queries or []:
         queries.append((build_keyword_query(keyword, categories), per_keyword_max_candidates))
 
+    total_queries = len(queries)
     papers_by_id: dict[str, Paper] = {}
-    for index, (query, limit) in enumerate(queries):
-        for paper in _fetch_query(query, limit, cutoff, timeout_seconds, max_retries):
+    for index, (query, limit) in enumerate(queries, start=1):
+        label = _query_label(index, total_queries, query, limit)
+        print(f"[Fetch] {label}", file=sys.stderr, flush=True)
+        batch = list(_fetch_query(query, limit, cutoff, timeout_seconds, max_retries))
+        for paper in batch:
             papers_by_id.setdefault(paper.arxiv_id, paper)
-        if index < len(queries) - 1 and request_pause_seconds > 0:
+        print(f"[Fetch] {label} → {len(batch)} 篇", file=sys.stderr, flush=True)
+        if index < total_queries and request_pause_seconds > 0:
             time.sleep(request_pause_seconds)
 
     return sorted(
@@ -53,6 +59,17 @@ def fetch_recent_papers(
         key=lambda paper: _parse_arxiv_time(paper.published_at),
         reverse=True,
     )
+
+
+def _query_label(index: int, total: int, query: str, limit: int) -> str:
+    if index == 1 and total > 1:
+        kind = "分类"
+    elif "all:" in query:
+        keyword = query.split("all:")[1].split(" AND")[0].strip().strip('"')
+        kind = f"关键词 [{keyword}]"
+    else:
+        kind = "分类"
+    return f"[{index}/{total}] {kind} (max {limit})"
 
 
 def _fetch_query(

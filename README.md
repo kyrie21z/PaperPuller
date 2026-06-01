@@ -37,9 +37,19 @@ PaperPuller/
 
 建议使用虚拟环境：
 
+Windows (PowerShell)：
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+pip install -e .[dev]
+```
+
+Linux / macOS (bash)：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .[dev]
 ```
 
@@ -62,16 +72,33 @@ llm:
 
 `api_key_env` 填环境变量名，不要填真实 API Key。真实 Key 用环境变量设置：
 
+Windows (PowerShell，永久)：
+
 ```powershell
 [Environment]::SetEnvironmentVariable("PAPERPULLER_API_KEY", "你的API Key", "User")
 ```
 
-设置后需要重启终端或 Codex，新的进程才能读到。
+设置后需要重启终端，新的进程才能读到。
 
-临时只在当前 PowerShell 会话中使用：
+Linux / macOS（永久，写入 `~/.bashrc` 或 `~/.zshrc`）：
+
+```bash
+echo 'export PAPERPULLER_API_KEY="你的API Key"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+临时只在当前会话中使用：
+
+Windows (PowerShell)：
 
 ```powershell
 $env:PAPERPULLER_API_KEY = "你的API Key"
+```
+
+Linux / macOS (bash)：
+
+```bash
+export PAPERPULLER_API_KEY="你的API Key"
 ```
 
 ## 配置兴趣方向
@@ -105,8 +132,17 @@ email:
 
 设置 Gmail App Password：
 
+Windows (PowerShell)：
+
 ```powershell
 [Environment]::SetEnvironmentVariable("PAPERPULLER_SMTP_PASSWORD", "你的Gmail App Password", "User")
+```
+
+Linux / macOS：
+
+```bash
+echo 'export PAPERPULLER_SMTP_PASSWORD="你的Gmail App Password"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 Gmail 的 App Password 通常是 16 位密码，复制时中间可能带空格。程序会自动去掉 Gmail App Password 中的显示空格。
@@ -176,6 +212,84 @@ scripts/run_daily.ps1
 - 起始于：`C:\Users\52747\Documents\PaperPuller`
 
 如果使用用户环境变量保存 API Key 和 SMTP 密码，任务运行时也可以读取。
+
+## Linux 定时运行
+
+定时任务入口是：
+
+```bash
+scripts/run_daily.sh
+```
+
+### 使用 crontab
+
+编辑 crontab：
+
+```bash
+crontab -e
+```
+
+添加一行（每天早上 8 点运行，输出写入日志文件）：
+
+```cron
+0 8 * * * /home/yourname/PaperPuller/scripts/run_daily.sh >> /home/yourname/PaperPuller/logs/cron.log 2>&1
+```
+
+注意：
+- 把路径替换为你的实际项目路径。
+- crontab 运行时的环境变量较少，如果 API Key 和 SMTP 密码写在 `~/.bashrc` 中，cron 可能读不到。建议在 crontab 文件顶部显式设置：
+
+```cron
+PAPERPULLER_API_KEY=你的API Key
+PAPERPULLER_SMTP_PASSWORD=你的Gmail App Password
+0 8 * * * /home/yourname/PaperPuller/scripts/run_daily.sh >> /home/yourname/PaperPuller/logs/cron.log 2>&1
+```
+
+### 使用 systemd timer（可选）
+
+如果希望更灵活的调度（如开机后延迟运行、失败重试），可以创建 systemd service + timer：
+
+`~/.config/systemd/user/paperpuller.service`：
+
+```ini
+[Unit]
+Description=PaperPuller daily arXiv digest
+
+[Service]
+Type=oneshot
+ExecStart=%h/PaperPuller/scripts/run_daily.sh
+Environment=PAPERPULLER_API_KEY=你的API Key
+Environment=PAPERPULLER_SMTP_PASSWORD=你的Gmail App Password
+```
+
+`~/.config/systemd/user/paperpuller.timer`：
+
+```ini
+[Unit]
+Description=PaperPuller daily timer
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+启用定时器：
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable paperpuller.timer
+systemctl --user start paperpuller.timer
+```
+
+查看状态：
+
+```bash
+systemctl --user status paperpuller.timer
+systemctl --user list-timers
+```
 
 ## GitHub Actions
 

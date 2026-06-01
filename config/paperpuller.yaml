@@ -3,14 +3,15 @@ arxiv:
     - cs.CV
     - cs.AI
     - cs.LG
-  fetch_days: 2
+  fetch_days: 60
   max_candidates: 100
+  request_pause_seconds: 15
 
 interest_file: config/interest.md
 
 llm:
-  base_url: https://api.openai.com/v1
-  model: gpt-4o-mini
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  model: deepseek-v4-flash
   api_key_env: PAPERPULLER_API_KEY
   temperature: 0.1
   timeout_seconds: 60
@@ -18,7 +19,7 @@ llm:
 
 ranking:
   high_priority_threshold: 7
-  possible_threshold: 5
+  possible_threshold: 4
   max_report_papers: 50
 
 storage:
@@ -26,11 +27,11 @@ storage:
   report_dir: reports
 
 email:
-  enabled: false
-  smtp_server: smtp.example.com
+  enabled: true
+  smtp_server:  smtp.gmail.com
   smtp_port: 587
-  sender: sender@example.com
-  receiver: receiver@example.com
+  sender: kyriezhang21@gmail.com
+  receiver: 527479352@qq.com
   password_env: PAPERPULLER_SMTP_PASSWORD
   subject: Daily arXiv
 
