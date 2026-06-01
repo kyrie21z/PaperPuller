@@ -1,0 +1,36 @@
+arxiv:
+  categories:
+    - cs.CV
+    - cs.AI
+    - cs.LG
+  fetch_days: 2
+  max_candidates: 100
+
+interest_file: config/interest.md
+
+llm:
+  base_url: https://api.openai.com/v1
+  model: gpt-4o-mini
+  api_key_env: PAPERPULLER_API_KEY
+  temperature: 0.1
+  timeout_seconds: 60
+  max_retries: 3
+
+ranking:
+  high_priority_threshold: 7
+  possible_threshold: 5
+  max_report_papers: 50
+
+storage:
+  sqlite_path: data/papers.sqlite3
+  report_dir: reports
+
+email:
+  enabled: false
+  smtp_server: smtp.example.com
+  smtp_port: 587
+  sender: sender@example.com
+  receiver: receiver@example.com
+  password_env: PAPERPULLER_SMTP_PASSWORD
+  subject: Daily arXiv
+
