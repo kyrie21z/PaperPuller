@@ -23,6 +23,9 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
             config.arxiv.categories,
             config.arxiv.fetch_days,
             config.arxiv.max_candidates,
+            keyword_queries=config.arxiv.keyword_queries,
+            per_keyword_max_candidates=config.arxiv.per_keyword_max_candidates,
+            request_pause_seconds=config.arxiv.request_pause_seconds,
             timeout_seconds=config.llm.timeout_seconds,
             max_retries=config.llm.max_retries,
         )

@@ -17,18 +17,56 @@ def build_query(categories: list[str]) -> str:
     return " OR ".join(f"cat:{category}" for category in categories)
 
 
+def build_keyword_query(keyword: str, categories: list[str]) -> str:
+    term = keyword.strip()
+    if not term:
+        raise ValueError("keyword must not be empty")
+    if " " in term:
+        term = f'"{term}"'
+    return f"all:{term} AND ({build_query(categories)})"
+
+
 def fetch_recent_papers(
     categories: list[str],
     fetch_days: int,
     max_candidates: int,
+    keyword_queries: list[str] | None = None,
+    per_keyword_max_candidates: int = 50,
+    request_pause_seconds: float = 3,
     timeout_seconds: int = 30,
     max_retries: int = 3,
 ) -> list[Paper]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=fetch_days)
+    queries = [(build_query(categories), max_candidates)]
+    for keyword in keyword_queries or []:
+        queries.append((build_keyword_query(keyword, categories), per_keyword_max_candidates))
+
+    papers_by_id: dict[str, Paper] = {}
+    for index, (query, limit) in enumerate(queries):
+        for paper in _fetch_query(query, limit, cutoff, timeout_seconds, max_retries):
+            papers_by_id.setdefault(paper.arxiv_id, paper)
+        if index < len(queries) - 1 and request_pause_seconds > 0:
+            time.sleep(request_pause_seconds)
+
+    return sorted(
+        papers_by_id.values(),
+        key=lambda paper: _parse_arxiv_time(paper.published_at),
+        reverse=True,
+    )
+
+
+def _fetch_query(
+    search_query: str,
+    max_results: int,
+    cutoff: datetime,
+    timeout_seconds: int,
+    max_retries: int,
+) -> list[Paper]:
     url = "https://export.arxiv.org/api/query"
     params = {
-        "search_query": build_query(categories),
+        "search_query": search_query,
         "start": 0,
-        "max_results": max_candidates,
+        "max_results": max_results,
         "sortBy": "submittedDate",
         "sortOrder": "descending",
     }
@@ -51,7 +89,6 @@ def fetch_recent_papers(
     assert response is not None
     response.raise_for_status()
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=fetch_days)
     root = ET.fromstring(response.text)
     papers: list[Paper] = []
     seen: set[str] = set()

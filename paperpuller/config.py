@@ -7,11 +7,28 @@ from typing import Any
 import yaml
 
 
+DEFAULT_KEYWORD_QUERIES = [
+    "OCR",
+    "optical character recognition",
+    "scene text recognition",
+    "text spotting",
+    "document understanding",
+    "vision transformer",
+    "masked autoencoder",
+    "masked image modeling",
+    "data augmentation",
+    "synthetic data",
+]
+
+
 @dataclass(frozen=True)
 class ArxivConfig:
     categories: list[str]
     fetch_days: int
     max_candidates: int
+    keyword_queries: list[str]
+    per_keyword_max_candidates: int
+    request_pause_seconds: float
 
 
 @dataclass(frozen=True)
@@ -83,6 +100,9 @@ def load_config(path: str | Path) -> AppConfig:
             categories=list(arxiv.get("categories", ["cs.CV"])),
             fetch_days=int(arxiv.get("fetch_days", 2)),
             max_candidates=int(arxiv.get("max_candidates", 100)),
+            keyword_queries=list(arxiv.get("keyword_queries", DEFAULT_KEYWORD_QUERIES)),
+            per_keyword_max_candidates=int(arxiv.get("per_keyword_max_candidates", 50)),
+            request_pause_seconds=float(arxiv.get("request_pause_seconds", 3)),
         ),
         llm=LlmConfig(
             base_url=str(llm.get("base_url", "https://api.openai.com/v1")),
@@ -111,4 +131,3 @@ def load_config(path: str | Path) -> AppConfig:
             subject=str(email.get("subject", "Daily arXiv")),
         ),
     )
-
