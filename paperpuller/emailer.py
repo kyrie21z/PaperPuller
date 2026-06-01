@@ -42,6 +42,9 @@ def send_email(config: AppConfig, report_date: date, rows: list[dict]) -> None:
     password = os.environ.get(config.email.password_env)
     if not password:
         raise RuntimeError(f"Missing SMTP password environment variable: {config.email.password_env}")
+    password = password.strip()
+    if "gmail.com" in config.email.smtp_server.lower():
+        password = password.replace(" ", "")
 
     receivers = [value.strip() for value in config.email.receiver.split(",") if value.strip()]
     if not receivers:
@@ -52,14 +55,15 @@ def send_email(config: AppConfig, report_date: date, rows: list[dict]) -> None:
     message["To"] = ", ".join(receivers)
     message["Subject"] = Header(f"{config.email.subject} {report_date.isoformat()}", "utf-8").encode()
 
-    try:
-        server = smtplib.SMTP(config.email.smtp_server, config.email.smtp_port, timeout=30)
-        server.starttls()
-    except Exception:
+    if config.email.smtp_port == 465:
         server = smtplib.SMTP_SSL(config.email.smtp_server, config.email.smtp_port, timeout=30)
+    else:
+        server = smtplib.SMTP(config.email.smtp_server, config.email.smtp_port, timeout=30)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
     try:
         server.login(config.email.sender, password)
         server.sendmail(config.email.sender, receivers, message.as_string())
     finally:
         server.quit()
-
