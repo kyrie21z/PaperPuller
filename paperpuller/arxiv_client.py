@@ -34,12 +34,20 @@ def fetch_recent_papers(
     }
     headers = {"User-Agent": "PaperPuller/0.1 (local research paper digest)"}
     response = None
-    for attempt in range(1, max_retries + 1):
-        response = requests.get(url, params=params, headers=headers, timeout=timeout_seconds)
-        if response.status_code not in {429, 500, 502, 503, 504}:
+    retryable_statuses = {429, 500, 502, 503, 504}
+    attempts = max(max_retries, 6)
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=timeout_seconds)
+        except requests.RequestException:
+            if attempt == attempts:
+                raise
+            time.sleep(_retry_delay(None, attempt))
+            continue
+        if response.status_code not in retryable_statuses:
             break
-        if attempt < max_retries:
-            time.sleep(3 * attempt)
+        if attempt < attempts:
+            time.sleep(_retry_delay(response, attempt))
     assert response is not None
     response.raise_for_status()
 
@@ -100,6 +108,14 @@ def _parse_entry(entry: ET.Element) -> Paper:
 def _text(element: ET.Element, name: str) -> str:
     child = element.find(name)
     return child.text.strip() if child is not None and child.text else ""
+
+
+def _retry_delay(response: requests.Response | None, attempt: int) -> int:
+    if response is not None:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after and retry_after.isdigit():
+            return min(int(retry_after), 300)
+    return min(15 * (2 ** (attempt - 1)), 300)
 
 
 def _parse_arxiv_time(value: str) -> datetime:
