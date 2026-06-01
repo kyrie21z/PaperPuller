@@ -1,6 +1,6 @@
 name: Daily PaperPuller
 
-on:
+"on":
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
@@ -28,4 +28,3 @@ jobs:
           git add reports data || true
           git diff --cached --quiet || git commit -m "Update daily paper report"
           git push
-
