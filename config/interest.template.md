@@ -1,6 +1,12 @@
-# PaperPuller Interest Profile
+# Research Interest Profile
+
+<!-- Copy this file to config/interest.md and customize it for your research area.
+     All sections except the free-form description at the top are optional.
+     Use config/CHATGPT_PROMPT.md to have an AI assistant generate this file for you. -->
 
 I am interested in papers that can help improve Ship License Plate Recognition (SLPR), a specialized scene text recognition task with Chinese characters, digits, English/Pinyin text, complex layouts, and severe real-world visual degradation.
+
+## Evaluation Criteria
 
 Prioritize papers that address one or more of these SLPR challenges:
 
@@ -28,3 +34,29 @@ Prioritize papers that address one or more of these SLPR challenges:
 Prefer papers with clear methods, reproducible experiments, released code, useful ablations, hard/degraded/irregular/multilingual case analysis, or a plausible path to integration into an encoder-decoder STR pipeline.
 
 Down-rank papers mainly about pure LLM prompting, document QA without recognition improvement, text detection only, generic image generation/restoration without OCR evaluation, medical imaging, robotics, 3D reconstruction, remote sensing without text recognition, or general ML without a clear OCR/STR connection.
+
+## Groups
+
+- Must Read: high-score papers with code and direct applicability
+- Robust Recognition / Degradation: papers addressing degradation, occlusion, domain shift
+- Complex Layout / Structured Recognition: multi-line, vertical, mixed-script, long sequences
+- Visual Encoder / Pretraining: ViT, MAE, self-supervised visual learning
+- Semantic Enhancement / Decoder: vision-language alignment, context-aware decoding
+- Data / Augmentation / Restoration: data augmentation, synthetic data, image restoration
+- Reranking / Error Correction: confidence calibration, error correction, ensemble methods
+- Related Work / Others: everything else
+
+## Local Keywords
+
+- OCR: ocr, optical character recognition, document understanding, text spotting
+- STR: scene text, text recognition, text detection, text recognizer
+- ViT: vision transformer, vit, transformer-based vision, visual transformer
+- MAE: masked autoencoder, mae, masked image modeling, self-supervised visual
+- Augmentation: augmentation, synthetic data, domain randomization, data synthesis
+
+## Extra Fields
+
+Please also return these additional fields in the `extra` JSON object:
+- challenges: array of challenge types addressed (degradation, occlusion, complex_layout, multi_line, vertical_text, long_sequence, mixed_script, domain_shift)
+- pipeline_components: array of pipeline components (visual_encoder, mae_pretraining, semantic_enhancement, decoder, data_augmentation, restoration, domain_adaptation, reranking, error_correction, benchmark_or_dataset, analysis_only)
+- reproducibility: one of "high", "medium", "low", "unknown"

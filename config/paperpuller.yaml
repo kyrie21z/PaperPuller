@@ -16,7 +16,7 @@ arxiv:
     - data augmentation text recognition
     - text image restoration
 
-interest_file: config/interest.md
+interest_file: config/interest.template.md
 
 llm:
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1

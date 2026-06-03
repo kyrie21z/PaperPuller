@@ -5,88 +5,16 @@ from pathlib import Path
 
 from .config import AppConfig
 
-# (label, matcher) — first match wins.
-TRACKS: list[tuple[str, object]] = []
-
-
-def _register(label: str):
-    def deco(fn):
-        TRACKS.append((label, fn))
-        return fn
-    return deco
-
-
-@_register("Must Read")
-def _must_read(row: dict, cfg: AppConfig) -> bool:
-    return (
-        row["score"] >= cfg.ranking.high_priority_threshold
-        and row.get("next_action", "") in ("read", "reproduce")
-    )
-
-
-@_register("Robust Recognition / Degradation")
-def _robust(row: dict, _cfg: AppConfig) -> bool:
-    challenges: list[str] = row.get("slpr_challenges", []) or []
-    components: list[str] = row.get("pipeline_components", []) or []
-    robust_ch = {"degradation", "occlusion", "domain_shift"}
-    robust_cp = {"restoration", "domain_adaptation"}
-    return bool(set(challenges) & robust_ch or set(components) & robust_cp)
-
-
-@_register("Complex Layout / Structured Recognition")
-def _layout(row: dict, _cfg: AppConfig) -> bool:
-    challenges: list[str] = row.get("slpr_challenges", []) or []
-    layout_ch = {"complex_layout", "multi_line", "vertical_text", "long_sequence", "mixed_script"}
-    return bool(set(challenges) & layout_ch)
-
-
-@_register("Visual Encoder / MAE Pretraining")
-def _encoder(row: dict, _cfg: AppConfig) -> bool:
-    components: list[str] = row.get("pipeline_components", []) or []
-    return bool(set(components) & {"visual_encoder", "mae_pretraining"})
-
-
-@_register("Semantic Enhancement / Decoder")
-def _semantic(row: dict, _cfg: AppConfig) -> bool:
-    components: list[str] = row.get("pipeline_components", []) or []
-    return bool(set(components) & {"semantic_enhancement", "decoder"})
-
-
-@_register("Data / Augmentation / Restoration")
-def _data(row: dict, _cfg: AppConfig) -> bool:
-    components: list[str] = row.get("pipeline_components", []) or []
-    return bool(set(components) & {"data_augmentation", "restoration", "domain_adaptation", "benchmark_or_dataset"})
-
-
-@_register("Reranking / Error Correction / Calibration")
-def _rerank(row: dict, _cfg: AppConfig) -> bool:
-    components: list[str] = row.get("pipeline_components", []) or []
-    challenges: list[str] = row.get("slpr_challenges", []) or []
-    return bool(set(components) & {"reranking", "error_correction"} or "similar_character_confusion" in challenges)
-
-
-@_register("Related Work / Others")
-def _others(_row: dict, _cfg: AppConfig) -> bool:
-    return True
-
-
-def _classify(rows: list[dict], config: AppConfig) -> dict[str, list[dict]]:
-    groups: dict[str, list[dict]] = {label: [] for label, _ in TRACKS}
-    assigned: set[int] = set()
-    for idx, row in enumerate(rows):
-        for label, matcher in TRACKS:
-            if matcher(row, config):
-                groups[label].append(row)
-                assigned.add(idx)
-                break
-    groups = {label: papers for label, papers in groups.items() if papers}
-    return groups
-
 
 def render_markdown(config: AppConfig, report_date: date, rows: list[dict]) -> str:
-    groups = _classify(rows, config)
+    high = [r for r in rows if r["score"] >= config.ranking.high_priority_threshold]
+    possible = [
+        r
+        for r in rows
+        if config.ranking.possible_threshold <= r["score"] < config.ranking.high_priority_threshold
+    ]
     lines = [
-        "# Daily arXiv Papers — SLPR Research Digest",
+        "# Daily arXiv Papers",
         "",
         f"Date: {report_date.isoformat()}",
         f"Model: `{config.llm.model}`",
@@ -94,10 +22,14 @@ def render_markdown(config: AppConfig, report_date: date, rows: list[dict]) -> s
         f"Included papers: {len(rows)}",
         "",
     ]
-    for label, _ in TRACKS:
-        papers = groups.get(label, [])
-        if papers:
-            lines.extend(_section(label, papers))
+    if high:
+        lines.append("## High Priority")
+        lines.append("")
+        lines.extend(_render_groups(high))
+    if possible:
+        lines.append("## Possibly Relevant")
+        lines.append("")
+        lines.extend(_render_groups(possible))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -108,36 +40,56 @@ def write_report(config: AppConfig, report_date: date, rows: list[dict]) -> Path
     return path
 
 
-def _section(title: str, rows: list[dict]) -> list[str]:
-    lines = [f"## {title}", f"", f"_{len(rows)} paper(s)_", ""]
-    for index, row in enumerate(rows, start=1):
-        authors = ", ".join(row["authors"][:6])
-        if len(row["authors"]) > 6:
-            authors += ", et al."
-        slpr_ch = ", ".join(row.get("slpr_challenges", []) or []) or "—"
-        pipeline_cp = ", ".join(row.get("pipeline_components", []) or []) or "—"
-        integration = row.get("integration_path", "") or "unknown"
-        reproducibility = row.get("reproducibility", "unknown") or "unknown"
-        next_action = row.get("next_action", "skim") or "skim"
-        lines.extend(
-            [
-                f"### {index}. {row['title']}",
-                "",
-                f"| Field | Value |",
-                f"|---|---|",
-                f"| Score | {row['score']:.1f} |",
-                f"| Tags | {', '.join(row['topic_tags'])} |",
-                f"| SLPR Challenges | {slpr_ch} |",
-                f"| Pipeline Components | {pipeline_cp} |",
-                f"| Integration Path | {integration} |",
-                f"| Reproducibility | {reproducibility} |",
-                f"| Next Action | {next_action} |",
-                f"| Authors | {authors} |",
-                f"| arXiv | [{row['arxiv_id']}]({row['abs_url']}) |",
-                f"| PDF | [link]({row['pdf_url']}) |",
-                f"| TL;DR | {row['tldr']} |",
-                f"| Reason | {row['reason']} |",
-                "",
-            ]
-        )
+def _render_groups(rows: list[dict]) -> list[str]:
+    """Group *rows* by their ``group`` field and render each group as a sub-section."""
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        g = row.get("group", "Other") or "Other"
+        grouped.setdefault(g, []).append(row)
+
+    # Sort groups alphabetically for stable output
+    lines: list[str] = []
+    for group_name in sorted(grouped):
+        papers = grouped[group_name]
+        lines.append(f"### {group_name}")
+        lines.append("")
+        lines.append(f"_{len(papers)} paper(s)_")
+        lines.append("")
+        for index, row in enumerate(papers, start=1):
+            lines.extend(_paper_card(index, row))
     return lines
+
+
+def _paper_card(index: int, row: dict) -> list[str]:
+    authors = ", ".join(row["authors"][:6])
+    if len(row["authors"]) > 6:
+        authors += ", et al."
+    lines = [
+        f"#### {index}. {row['title']}",
+        "",
+        "| Field | Value |",
+        "|---|---|",
+        f"| Score | {row['score']:.1f} |",
+        f"| Tags | {', '.join(row['topic_tags'])} |",
+        f"| Group | {row.get('group', 'Other') or 'Other'} |",
+        f"| TL;DR | {row['tldr']} |",
+        f"| Reason | {row['reason']} |",
+        f"| Authors | {authors} |",
+        f"| arXiv | [{row['arxiv_id']}]({row['abs_url']}) |",
+        f"| PDF | [link]({row['pdf_url']}) |",
+    ]
+    extra = row.get("extra")
+    if isinstance(extra, dict) and extra:
+        for key, value in extra.items():
+            display = _format_extra_value(value)
+            lines.append(f"| {key} | {display} |")
+    lines.append("")
+    return lines
+
+
+def _format_extra_value(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        return ", ".join(f"{k}: {v}" for k, v in value.items())
+    return str(value)

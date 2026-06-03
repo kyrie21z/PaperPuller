@@ -12,12 +12,18 @@ from .tags import local_topic_tags
 
 
 class LlmEvaluator:
-    def __init__(self, config: AppConfig, interest: str):
+    def __init__(
+        self,
+        config: AppConfig,
+        interest: str,
+        keywords: dict[str, list[str]] | None = None,
+    ):
         api_key = os.environ.get(config.llm.api_key_env)
         if not api_key:
             raise RuntimeError(f"Missing API key environment variable: {config.llm.api_key_env}")
         self.config = config
         self.interest = interest
+        self.keywords = keywords or {}
         self.client = OpenAI(
             api_key=api_key,
             base_url=config.llm.base_url,
@@ -52,40 +58,40 @@ class LlmEvaluator:
         raise RuntimeError(f"LLM evaluation failed for {paper.arxiv_id}: {last_error}")
 
     def _build_prompt(self, paper: Paper) -> str:
-        local_tags = ", ".join(local_topic_tags(paper.title, paper.abstract))
-        return f"""
-Interest profile:
-{self.interest}
-
-Paper:
-Title: {paper.title}
-Authors: {", ".join(paper.authors)}
-Categories: {", ".join(paper.categories)}
-Local keyword tags: {local_tags}
-Abstract: {paper.abstract}
-
-Return strict JSON with exactly these keys:
-- score: integer 1-10 (1=irrelevant, 10=must-read for my SLPR research)
-- topic_tags: array of short tags, choose from: OCR, STR, SLPR, ViT, MAE, Augmentation, Restoration, Semantic, Decoder, Reranking, ErrorCorrection, Benchmark, Analysis, Other
-- slpr_challenges: array of zero or more from ["degradation", "occlusion", "complex_layout", "multi_line", "vertical_text", "long_sequence", "mixed_script", "similar_character_confusion", "domain_shift", "other"]
-- pipeline_components: array of zero or more from ["visual_encoder", "mae_pretraining", "semantic_enhancement", "decoder", "data_augmentation", "restoration", "domain_adaptation", "reranking", "error_correction", "benchmark_or_dataset", "analysis_only", "other"]
-- integration_path: one of "pretrain", "finetune", "data", "decoder", "postprocess", "evaluation", "related_work", "ignore"
-- reproducibility: one of "high", "medium", "low", "unknown"
-- next_action: one of "read", "skim", "reproduce", "related_work", "ignore"
-- reason: one sentence explaining relevance (or lack thereof) to my SLPR research
-- tldr: 1-2 sentence summary of the paper's contribution
-""".strip()
+        parts = [
+            "Interest profile:",
+            self.interest,
+            "",
+            "Paper:",
+            f"Title: {paper.title}",
+            f"Authors: {', '.join(paper.authors)}",
+            f"Categories: {', '.join(paper.categories)}",
+        ]
+        if self.keywords:
+            matched = local_topic_tags(paper.title, paper.abstract, self.keywords)
+            if matched:
+                parts.append(f"Local keyword tags: {', '.join(matched)}")
+        parts.append(f"Abstract: {paper.abstract}")
+        parts.append(
+            "Return strict JSON with exactly these keys:\n"
+            "- score: integer 1-10 (1=irrelevant, 10=must-read)\n"
+            "- topic_tags: array of short tags matching the interest profile's topics\n"
+            "- group: one group name from the interest profile's defined groups, or \"Other\"\n"
+            "- reason: one sentence explaining relevance (or lack thereof)\n"
+            "- tldr: 1-2 sentence summary of the paper's contribution\n"
+            "- extra: object containing any additional fields described in the interest profile, or empty object {}"
+        )
+        return "\n".join(parts)
 
 
 def _parse_evaluation(arxiv_id: str, model: str, data: dict) -> Evaluation:
     score = float(data.get("score", 0))
     score = max(0.0, min(10.0, score))
     topic_tags = _parse_str_list(data.get("topic_tags"), fallback=["Other"])
-    slpr_challenges = _parse_str_list(data.get("slpr_challenges"))
-    pipeline_components = _parse_str_list(data.get("pipeline_components"))
-    integration_path = str(data.get("integration_path", "")).strip()
-    reproducibility = str(data.get("reproducibility", "unknown")).strip()
-    next_action = str(data.get("next_action", "skim")).strip()
+    group = str(data.get("group", "")).strip() or "Other"
+    extra = data.get("extra")
+    if not isinstance(extra, dict):
+        extra = {}
     return Evaluation(
         arxiv_id=arxiv_id,
         model=model,
@@ -93,11 +99,8 @@ def _parse_evaluation(arxiv_id: str, model: str, data: dict) -> Evaluation:
         topic_tags=topic_tags,
         reason=str(data.get("reason", "")).strip(),
         tldr=str(data.get("tldr", "")).strip(),
-        slpr_challenges=slpr_challenges,
-        pipeline_components=pipeline_components,
-        integration_path=integration_path or "",
-        reproducibility=reproducibility or "unknown",
-        next_action=next_action or "skim",
+        group=group,
+        extra=extra,
     )
 
 
@@ -110,4 +113,3 @@ def _parse_str_list(value: object, fallback: list[str] | None = None) -> list[st
         parts = [p.strip() for p in value.split(",") if p.strip()]
         return parts if parts else fallback
     return fallback
-

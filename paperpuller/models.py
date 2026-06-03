@@ -24,9 +24,6 @@ class Evaluation:
     topic_tags: list[str]
     reason: str
     tldr: str
-    slpr_challenges: list[str] = field(default_factory=list)
-    pipeline_components: list[str] = field(default_factory=list)
-    integration_path: str = ""
-    reproducibility: str = "unknown"
-    next_action: str = "skim"
+    group: str = "Other"
+    extra: dict = field(default_factory=dict)
 

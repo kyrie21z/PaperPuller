@@ -4,30 +4,30 @@ from paperpuller.llm import _parse_evaluation, _parse_str_list
 def test_parse_evaluation_full_fields():
     data = {
         "score": 9,
-        "topic_tags": ["OCR", "SLPR", "ViT"],
-        "slpr_challenges": ["degradation", "occlusion", "mixed_script"],
-        "pipeline_components": ["visual_encoder", "decoder"],
-        "integration_path": "finetune",
-        "reproducibility": "high",
-        "next_action": "read",
-        "reason": "Directly relevant to SLPR.",
+        "topic_tags": ["OCR", "STR", "ViT"],
+        "group": "Robust Recognition",
+        "reason": "Directly relevant to the research area.",
         "tldr": "A method for robust STR with ViT encoder.",
+        "extra": {
+            "challenges": ["degradation", "occlusion", "mixed_script"],
+            "pipeline_components": ["visual_encoder", "decoder"],
+        },
     }
     evaluation = _parse_evaluation("2601.00099", "test-model", data)
 
     assert evaluation.score == 9.0
-    assert evaluation.topic_tags == ["OCR", "SLPR", "ViT"]
-    assert evaluation.slpr_challenges == ["degradation", "occlusion", "mixed_script"]
-    assert evaluation.pipeline_components == ["visual_encoder", "decoder"]
-    assert evaluation.integration_path == "finetune"
-    assert evaluation.reproducibility == "high"
-    assert evaluation.next_action == "read"
-    assert evaluation.reason == "Directly relevant to SLPR."
+    assert evaluation.topic_tags == ["OCR", "STR", "ViT"]
+    assert evaluation.group == "Robust Recognition"
+    assert evaluation.reason == "Directly relevant to the research area."
     assert evaluation.tldr == "A method for robust STR with ViT encoder."
+    assert evaluation.extra == {
+        "challenges": ["degradation", "occlusion", "mixed_script"],
+        "pipeline_components": ["visual_encoder", "decoder"],
+    }
 
 
-def test_parse_evaluation_missing_all_new_fields():
-    """Old-style LLM response without any new fields should get defaults."""
+def test_parse_evaluation_minimal_fields():
+    """LLM response without optional fields should get defaults."""
     data = {
         "score": 5,
         "topic_tags": ["Other"],
@@ -37,11 +37,21 @@ def test_parse_evaluation_missing_all_new_fields():
     evaluation = _parse_evaluation("2601.00100", "test-model", data)
 
     assert evaluation.score == 5.0
-    assert evaluation.slpr_challenges == []
-    assert evaluation.pipeline_components == []
-    assert evaluation.integration_path == ""
-    assert evaluation.reproducibility == "unknown"
-    assert evaluation.next_action == "skim"
+    assert evaluation.group == "Other"
+    assert evaluation.extra == {}
+
+
+def test_parse_evaluation_extra_is_string():
+    """LLM returns a string for extra — should be ignored."""
+    data = {
+        "score": 6,
+        "topic_tags": ["OCR"],
+        "reason": "Test.",
+        "tldr": "Test.",
+        "extra": "not an object",
+    }
+    evaluation = _parse_evaluation("2601.00101", "test-model", data)
+    assert evaluation.extra == {}
 
 
 def test_parse_evaluation_score_clamped():

@@ -32,11 +32,8 @@ CREATE TABLE IF NOT EXISTS evaluations (
     topic_tags_json TEXT NOT NULL,
     reason TEXT NOT NULL,
     tldr TEXT NOT NULL,
-    slpr_challenges_json TEXT NOT NULL DEFAULT '[]',
-    pipeline_components_json TEXT NOT NULL DEFAULT '[]',
-    integration_path TEXT NOT NULL DEFAULT '',
-    reproducibility TEXT NOT NULL DEFAULT 'unknown',
-    next_action TEXT NOT NULL DEFAULT 'skim',
+    "group" TEXT NOT NULL DEFAULT 'Other',
+    extra_json TEXT NOT NULL DEFAULT '{}',
     evaluated_at TEXT NOT NULL,
     PRIMARY KEY (arxiv_id, model),
     FOREIGN KEY (arxiv_id) REFERENCES papers(arxiv_id)
@@ -86,19 +83,47 @@ class Database:
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
-        for col, col_def in [
-            ("slpr_challenges_json", "TEXT NOT NULL DEFAULT '[]'"),
-            ("pipeline_components_json", "TEXT NOT NULL DEFAULT '[]'"),
-            ("integration_path", "TEXT NOT NULL DEFAULT ''"),
-            ("reproducibility", "TEXT NOT NULL DEFAULT 'unknown'"),
-            ("next_action", "TEXT NOT NULL DEFAULT 'skim'"),
-        ]:
-            try:
-                connection.execute(
-                    f"ALTER TABLE evaluations ADD COLUMN {col} {col_def}"
-                )
-            except sqlite3.OperationalError:
-                pass  # column already exists
+        # Migration: move old SLPR-specific columns into extra_json + "group",
+        # then drop them. Safe to call on new databases — detects and skips.
+        old_columns = [
+            "slpr_challenges_json",
+            "pipeline_components_json",
+            "integration_path",
+            "reproducibility",
+            "next_action",
+        ]
+        cursor = connection.execute("PRAGMA table_info(evaluations)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "slpr_challenges_json" not in existing:
+            return  # already migrated or new database
+
+        # Ensure new columns exist before we move data
+        connection.execute("ALTER TABLE evaluations ADD COLUMN extra_json TEXT NOT NULL DEFAULT '{}'")
+        connection.execute("ALTER TABLE evaluations ADD COLUMN \"group\" TEXT NOT NULL DEFAULT 'Other'")
+
+        rows = connection.execute(
+            "SELECT arxiv_id, model, slpr_challenges_json, pipeline_components_json,"
+            " integration_path, reproducibility, next_action FROM evaluations"
+        ).fetchall()
+        for row in rows:
+            extra = {
+                "slpr_challenges": json.loads(row["slpr_challenges_json"] or "[]"),
+                "pipeline_components": json.loads(row["pipeline_components_json"] or "[]"),
+                "integration_path": row["integration_path"] or "",
+                "reproducibility": row["reproducibility"] or "unknown",
+                "next_action": row["next_action"] or "skim",
+            }
+            # Derive group from old data using the original track order
+            group = _derive_group(extra)
+            connection.execute(
+                "UPDATE evaluations SET extra_json = ?, \"group\" = ?"
+                " WHERE arxiv_id = ? AND model = ?",
+                (json.dumps(extra, ensure_ascii=False), group, row["arxiv_id"], row["model"]),
+            )
+
+        # Drop old columns (SQLite 3.35+)
+        for col in old_columns:
+            connection.execute(f"ALTER TABLE evaluations DROP COLUMN {col}")
 
     def start_run(self) -> int:
         now = _now()
@@ -203,21 +228,17 @@ class Database:
                 """
                 INSERT INTO evaluations (
                     arxiv_id, model, score, topic_tags_json, reason, tldr,
-                    slpr_challenges_json, pipeline_components_json,
-                    integration_path, reproducibility, next_action,
+                    "group", extra_json,
                     evaluated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(arxiv_id, model) DO UPDATE SET
                     score = excluded.score,
                     topic_tags_json = excluded.topic_tags_json,
                     reason = excluded.reason,
                     tldr = excluded.tldr,
-                    slpr_challenges_json = excluded.slpr_challenges_json,
-                    pipeline_components_json = excluded.pipeline_components_json,
-                    integration_path = excluded.integration_path,
-                    reproducibility = excluded.reproducibility,
-                    next_action = excluded.next_action,
+                    "group" = excluded."group",
+                    extra_json = excluded.extra_json,
                     evaluated_at = excluded.evaluated_at
                 """,
                 (
@@ -227,11 +248,8 @@ class Database:
                     json.dumps(evaluation.topic_tags, ensure_ascii=False),
                     evaluation.reason,
                     evaluation.tldr,
-                    json.dumps(evaluation.slpr_challenges, ensure_ascii=False),
-                    json.dumps(evaluation.pipeline_components, ensure_ascii=False),
-                    evaluation.integration_path,
-                    evaluation.reproducibility,
-                    evaluation.next_action,
+                    evaluation.group,
+                    json.dumps(evaluation.extra, ensure_ascii=False),
                     _now(),
                 ),
             )
@@ -253,8 +271,7 @@ class Database:
             rows = connection.execute(
                 f"""
                 SELECT p.*, e.model, e.score, e.topic_tags_json, e.reason, e.tldr,
-                       e.slpr_challenges_json, e.pipeline_components_json,
-                       e.integration_path, e.reproducibility, e.next_action,
+                       e."group", e.extra_json,
                        e.evaluated_at
                 FROM papers p
                 JOIN evaluations e ON e.arxiv_id = p.arxiv_id
@@ -328,13 +345,45 @@ def _row_to_report(row: sqlite3.Row) -> dict:
         "topic_tags": json.loads(row["topic_tags_json"]),
         "reason": row["reason"],
         "tldr": row["tldr"],
-        "slpr_challenges": _json_col("slpr_challenges_json"),
-        "pipeline_components": _json_col("pipeline_components_json"),
-        "integration_path": _str_col("integration_path"),
-        "reproducibility": _str_col("reproducibility", "unknown"),
-        "next_action": _str_col("next_action", "skim"),
+        "group": _str_col("group", "Other"),
+        "extra": _json_col("extra_json", {}),
         "evaluated_at": _str_col("evaluated_at"),
     }
+
+
+def _derive_group(extra: dict) -> str:
+    """Derive a group name from the old SLPR-specific fields.
+
+    Mirrors the original report.py TRACKS matching order:
+    Must Read → Robust Recognition → Complex Layout → Visual Encoder →
+    Semantic Enhancement → Data/Augmentation → Reranking → Related Work.
+    """
+    challenges: list[str] = extra.get("slpr_challenges", []) or []
+    components: list[str] = extra.get("pipeline_components", []) or []
+    ch_set = set(challenges)
+    cp_set = set(components)
+
+    robust_ch = {"degradation", "occlusion", "domain_shift"}
+    robust_cp = {"restoration", "domain_adaptation"}
+    layout_ch = {"complex_layout", "multi_line", "vertical_text", "long_sequence", "mixed_script"}
+    encoder_cp = {"visual_encoder", "mae_pretraining"}
+    semantic_cp = {"semantic_enhancement", "decoder"}
+    data_cp = {"data_augmentation", "restoration", "domain_adaptation", "benchmark_or_dataset"}
+    rerank_cp = {"reranking", "error_correction"}
+
+    if ch_set & robust_ch or cp_set & robust_cp:
+        return "Robust Recognition / Degradation"
+    if ch_set & layout_ch:
+        return "Complex Layout / Structured Recognition"
+    if cp_set & encoder_cp:
+        return "Visual Encoder / MAE Pretraining"
+    if cp_set & semantic_cp:
+        return "Semantic Enhancement / Decoder"
+    if cp_set & data_cp:
+        return "Data / Augmentation / Restoration"
+    if cp_set & rerank_cp or "similar_character_confusion" in ch_set:
+        return "Reranking / Error Correction / Calibration"
+    return "Related Work / Others"
 
 
 def _now() -> str:

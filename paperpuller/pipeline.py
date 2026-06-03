@@ -10,6 +10,7 @@ from .database import Database
 from .emailer import send_email
 from .llm import LlmEvaluator
 from .report import write_report
+from .tags import parse_keywords
 
 
 def _info(msg: str) -> None:
@@ -45,7 +46,7 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
 
         if not skip_llm:
             interest = config.interest_file.read_text(encoding="utf-8")
-            evaluator = LlmEvaluator(config, interest)
+            evaluator = LlmEvaluator(config, interest, parse_keywords(interest))
             candidates = db.unevaluated_papers(config.llm.model)
             total = len(candidates)
             _info(f"[Eval] {total} 篇待评估")

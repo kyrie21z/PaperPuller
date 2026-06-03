@@ -5,77 +5,99 @@ from paperpuller.config import load_config
 from paperpuller.report import render_markdown
 
 
-def test_render_markdown_groups_papers_with_new_fields():
+def test_render_markdown_groups_by_group_field():
     config = load_config(Path("config/paperpuller.yaml"))
     rows = [
         {
-            "title": "Must Read Paper",
-            "score": 8.0,
-            "topic_tags": ["OCR", "SLPR"],
+            "title": "High Priority Paper",
+            "score": 8.5,
+            "topic_tags": ["OCR", "STR"],
+            "group": "Robust Recognition",
             "authors": ["A. Author"],
             "arxiv_id": "2601.00003",
             "abs_url": "https://arxiv.org/abs/2601.00003",
             "pdf_url": "https://arxiv.org/pdf/2601.00003",
             "tldr": "Summary.",
             "reason": "Directly relevant.",
-            "slpr_challenges": ["degradation", "occlusion"],
-            "pipeline_components": ["visual_encoder"],
-            "integration_path": "finetune",
-            "reproducibility": "high",
-            "next_action": "read",
+            "extra": {
+                "challenges": ["degradation", "occlusion"],
+                "pipeline_components": ["visual_encoder"],
+            },
         },
         {
             "title": "Related Work Paper",
             "score": 5.0,
             "topic_tags": ["ViT"],
+            "group": "Related Work",
             "authors": ["B. Author"],
             "arxiv_id": "2601.00004",
             "abs_url": "https://arxiv.org/abs/2601.00004",
             "pdf_url": "https://arxiv.org/pdf/2601.00004",
             "tldr": "Interesting but not core.",
             "reason": "Tangentially relevant.",
-            "slpr_challenges": [],
-            "pipeline_components": ["analysis_only"],
-            "integration_path": "related_work",
-            "reproducibility": "medium",
-            "next_action": "skim",
+            "extra": {},
         },
     ]
 
     markdown = render_markdown(config, date(2026, 6, 1), rows)
 
-    assert "## Must Read" in markdown
-    assert "Must Read Paper" in markdown
-    assert "Score | 8.0" in markdown
-    assert "SLPR Challenges | degradation, occlusion" in markdown
-    assert "Next Action | read" in markdown
-    assert "## Related Work / Others" in markdown
+    assert "## High Priority" in markdown
+    assert "### Robust Recognition" in markdown
+    assert "High Priority Paper" in markdown
+    assert "Score | 8.5" in markdown
+    assert "Group | Robust Recognition" in markdown
+    assert "## Possibly Relevant" in markdown
+    assert "### Related Work" in markdown
     assert "Related Work Paper" in markdown
 
 
-def test_render_markdown_handles_old_data_missing_new_fields():
-    """Old evaluations without the new columns should render safely."""
+def test_render_markdown_defaults_group_to_other():
     config = load_config(Path("config/paperpuller.yaml"))
     rows = [
         {
-            "title": "Legacy Paper",
+            "title": "No Group Paper",
             "score": 7.5,
             "topic_tags": ["OCR"],
+            "group": "",
             "authors": ["C. Author"],
             "arxiv_id": "2601.00005",
             "abs_url": "https://arxiv.org/abs/2601.00005",
             "pdf_url": "https://arxiv.org/pdf/2601.00005",
             "tldr": "Summary.",
             "reason": "Relevant.",
-            # No new fields at all
+            "extra": {},
         }
     ]
 
     markdown = render_markdown(config, date(2026, 6, 1), rows)
 
-    assert "Legacy Paper" in markdown
+    assert "No Group Paper" in markdown
     assert "Score | 7.5" in markdown
-    # Old data: next_action defaults to "skim", so falls into Related Work
-    assert "Related Work" in markdown
-    # Should display fallback values, not crash
-    assert "—" in markdown or "unknown" in markdown or "skim" in markdown
+    assert "### Other" in markdown
+
+
+def test_render_markdown_renders_extra_fields():
+    config = load_config(Path("config/paperpuller.yaml"))
+    rows = [
+        {
+            "title": "Extra Paper",
+            "score": 9.0,
+            "topic_tags": ["MAE"],
+            "group": "Visual Encoder",
+            "authors": ["D. Author"],
+            "arxiv_id": "2601.00006",
+            "abs_url": "https://arxiv.org/abs/2601.00006",
+            "pdf_url": "https://arxiv.org/pdf/2601.00006",
+            "tldr": "Summary.",
+            "reason": "Important.",
+            "extra": {
+                "reproducibility": "high",
+                "next_action": "read",
+            },
+        }
+    ]
+
+    markdown = render_markdown(config, date(2026, 6, 1), rows)
+
+    assert "| reproducibility | high |" in markdown
+    assert "| next_action | read |" in markdown
