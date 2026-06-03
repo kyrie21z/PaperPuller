@@ -34,7 +34,6 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
         papers = fetch_recent_papers(
             config.arxiv.categories,
             config.arxiv.fetch_days,
-            config.arxiv.max_candidates,
             keyword_queries=config.arxiv.keyword_queries,
             per_keyword_max_candidates=config.arxiv.per_keyword_max_candidates,
             request_pause_seconds=config.arxiv.request_pause_seconds,
@@ -50,12 +49,20 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
             candidates = db.unevaluated_papers(config.llm.model)
             total = len(candidates)
             _info(f"[Eval] {total} 篇待评估")
+            bar_width = 20
             for idx, paper in enumerate(candidates, start=1):
                 evaluation = evaluator.evaluate(paper)
                 db.save_evaluation(evaluation)
                 evaluated_count += 1
                 tags = ", ".join(evaluation.topic_tags)
-                _info(f"[Eval] [{idx}/{total}] {paper.arxiv_id} score={evaluation.score:.1f} tags=[{tags}]")
+                filled = int(idx / total * bar_width) if total else bar_width
+                bar = "█" * filled + "░" * (bar_width - filled)
+                msg = (
+                    f"[Eval] [{bar}] {idx}/{total}"
+                    f"  score={evaluation.score:.1f}  {paper.arxiv_id}  tags=[{tags}]"
+                )
+                print(f"\r{msg}\033[K", file=sys.stderr, end="", flush=True)
+            print("", file=sys.stderr, flush=True)  # final newline
         else:
             _info("[Eval] 已跳过 (--skip-llm)")
 

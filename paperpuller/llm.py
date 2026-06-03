@@ -64,26 +64,50 @@ Categories: {", ".join(paper.categories)}
 Local keyword tags: {local_tags}
 Abstract: {paper.abstract}
 
-Return JSON with exactly these keys:
-- score: number from 1 to 10
-- topic_tags: array of short tags chosen from OCR, STR, ViT, MAE, Augmentation, Other
-- reason: one sentence explaining why this paper is or is not worth reading
-- tldr: concise summary in 1-2 sentences
+Return strict JSON with exactly these keys:
+- score: integer 1-10 (1=irrelevant, 10=must-read for my SLPR research)
+- topic_tags: array of short tags, choose from: OCR, STR, SLPR, ViT, MAE, Augmentation, Restoration, Semantic, Decoder, Reranking, ErrorCorrection, Benchmark, Analysis, Other
+- slpr_challenges: array of zero or more from ["degradation", "occlusion", "complex_layout", "multi_line", "vertical_text", "long_sequence", "mixed_script", "similar_character_confusion", "domain_shift", "other"]
+- pipeline_components: array of zero or more from ["visual_encoder", "mae_pretraining", "semantic_enhancement", "decoder", "data_augmentation", "restoration", "domain_adaptation", "reranking", "error_correction", "benchmark_or_dataset", "analysis_only", "other"]
+- integration_path: one of "pretrain", "finetune", "data", "decoder", "postprocess", "evaluation", "related_work", "ignore"
+- reproducibility: one of "high", "medium", "low", "unknown"
+- next_action: one of "read", "skim", "reproduce", "related_work", "ignore"
+- reason: one sentence explaining relevance (or lack thereof) to my SLPR research
+- tldr: 1-2 sentence summary of the paper's contribution
 """.strip()
 
 
 def _parse_evaluation(arxiv_id: str, model: str, data: dict) -> Evaluation:
     score = float(data.get("score", 0))
     score = max(0.0, min(10.0, score))
-    topic_tags = data.get("topic_tags", ["Other"])
-    if not isinstance(topic_tags, list):
-        topic_tags = ["Other"]
+    topic_tags = _parse_str_list(data.get("topic_tags"), fallback=["Other"])
+    slpr_challenges = _parse_str_list(data.get("slpr_challenges"))
+    pipeline_components = _parse_str_list(data.get("pipeline_components"))
+    integration_path = str(data.get("integration_path", "")).strip()
+    reproducibility = str(data.get("reproducibility", "unknown")).strip()
+    next_action = str(data.get("next_action", "skim")).strip()
     return Evaluation(
         arxiv_id=arxiv_id,
         model=model,
         score=score,
-        topic_tags=[str(tag) for tag in topic_tags] or ["Other"],
+        topic_tags=topic_tags,
         reason=str(data.get("reason", "")).strip(),
         tldr=str(data.get("tldr", "")).strip(),
+        slpr_challenges=slpr_challenges,
+        pipeline_components=pipeline_components,
+        integration_path=integration_path or "",
+        reproducibility=reproducibility or "unknown",
+        next_action=next_action or "skim",
     )
+
+
+def _parse_str_list(value: object, fallback: list[str] | None = None) -> list[str]:
+    if fallback is None:
+        fallback = []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        parts = [p.strip() for p in value.split(",") if p.strip()]
+        return parts if parts else fallback
+    return fallback
 

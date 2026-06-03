@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS evaluations (
     topic_tags_json TEXT NOT NULL,
     reason TEXT NOT NULL,
     tldr TEXT NOT NULL,
+    slpr_challenges_json TEXT NOT NULL DEFAULT '[]',
+    pipeline_components_json TEXT NOT NULL DEFAULT '[]',
+    integration_path TEXT NOT NULL DEFAULT '',
+    reproducibility TEXT NOT NULL DEFAULT 'unknown',
+    next_action TEXT NOT NULL DEFAULT 'skim',
     evaluated_at TEXT NOT NULL,
     PRIMARY KEY (arxiv_id, model),
     FOREIGN KEY (arxiv_id) REFERENCES papers(arxiv_id)
@@ -77,6 +82,23 @@ class Database:
     def init(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate(connection)
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection) -> None:
+        for col, col_def in [
+            ("slpr_challenges_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("pipeline_components_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("integration_path", "TEXT NOT NULL DEFAULT ''"),
+            ("reproducibility", "TEXT NOT NULL DEFAULT 'unknown'"),
+            ("next_action", "TEXT NOT NULL DEFAULT 'skim'"),
+        ]:
+            try:
+                connection.execute(
+                    f"ALTER TABLE evaluations ADD COLUMN {col} {col_def}"
+                )
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def start_run(self) -> int:
         now = _now()
@@ -180,14 +202,22 @@ class Database:
             connection.execute(
                 """
                 INSERT INTO evaluations (
-                    arxiv_id, model, score, topic_tags_json, reason, tldr, evaluated_at
+                    arxiv_id, model, score, topic_tags_json, reason, tldr,
+                    slpr_challenges_json, pipeline_components_json,
+                    integration_path, reproducibility, next_action,
+                    evaluated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(arxiv_id, model) DO UPDATE SET
                     score = excluded.score,
                     topic_tags_json = excluded.topic_tags_json,
                     reason = excluded.reason,
                     tldr = excluded.tldr,
+                    slpr_challenges_json = excluded.slpr_challenges_json,
+                    pipeline_components_json = excluded.pipeline_components_json,
+                    integration_path = excluded.integration_path,
+                    reproducibility = excluded.reproducibility,
+                    next_action = excluded.next_action,
                     evaluated_at = excluded.evaluated_at
                 """,
                 (
@@ -197,6 +227,11 @@ class Database:
                     json.dumps(evaluation.topic_tags, ensure_ascii=False),
                     evaluation.reason,
                     evaluation.tldr,
+                    json.dumps(evaluation.slpr_challenges, ensure_ascii=False),
+                    json.dumps(evaluation.pipeline_components, ensure_ascii=False),
+                    evaluation.integration_path,
+                    evaluation.reproducibility,
+                    evaluation.next_action,
                     _now(),
                 ),
             )
@@ -217,7 +252,10 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT p.*, e.model, e.score, e.topic_tags_json, e.reason, e.tldr, e.evaluated_at
+                SELECT p.*, e.model, e.score, e.topic_tags_json, e.reason, e.tldr,
+                       e.slpr_challenges_json, e.pipeline_components_json,
+                       e.integration_path, e.reproducibility, e.next_action,
+                       e.evaluated_at
                 FROM papers p
                 JOIN evaluations e ON e.arxiv_id = p.arxiv_id
                 WHERE e.model = ? AND e.score >= ?
@@ -260,6 +298,21 @@ def _row_to_paper(row: sqlite3.Row) -> Paper:
 
 
 def _row_to_report(row: sqlite3.Row) -> dict:
+    def _json_col(name: str, default: object = None) -> object:
+        if default is None:
+            default = []
+        try:
+            return json.loads(row[name] or "[]")
+        except (KeyError, IndexError):
+            return default
+
+    def _str_col(name: str, default: str = "") -> str:
+        try:
+            val = row[name]
+            return str(val) if val is not None else default
+        except (KeyError, IndexError):
+            return default
+
     return {
         "arxiv_id": row["arxiv_id"],
         "title": row["title"],
@@ -275,7 +328,12 @@ def _row_to_report(row: sqlite3.Row) -> dict:
         "topic_tags": json.loads(row["topic_tags_json"]),
         "reason": row["reason"],
         "tldr": row["tldr"],
-        "evaluated_at": row["evaluated_at"],
+        "slpr_challenges": _json_col("slpr_challenges_json"),
+        "pipeline_components": _json_col("pipeline_components_json"),
+        "integration_path": _str_col("integration_path"),
+        "reproducibility": _str_col("reproducibility", "unknown"),
+        "next_action": _str_col("next_action", "skim"),
+        "evaluated_at": _str_col("evaluated_at"),
     }
 
 

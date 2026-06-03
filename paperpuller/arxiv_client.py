@@ -30,7 +30,6 @@ def build_keyword_query(keyword: str, categories: list[str]) -> str:
 def fetch_recent_papers(
     categories: list[str],
     fetch_days: int,
-    max_candidates: int,
     keyword_queries: list[str] | None = None,
     per_keyword_max_candidates: int = 50,
     request_pause_seconds: float = 3,
@@ -38,21 +37,31 @@ def fetch_recent_papers(
     max_retries: int = 3,
 ) -> list[Paper]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=fetch_days)
-    queries = [(build_query(categories), max_candidates)]
+    queries = []
     for keyword in keyword_queries or []:
         queries.append((build_keyword_query(keyword, categories), per_keyword_max_candidates))
 
     total_queries = len(queries)
+    bar_width = 20
     papers_by_id: dict[str, Paper] = {}
     for index, (query, limit) in enumerate(queries, start=1):
-        label = _query_label(index, total_queries, query, limit)
-        print(f"[Fetch] {label}", file=sys.stderr, flush=True)
+        label = _query_label(query, limit)
+        print(
+            f"\r[Fetch] [{'_' * bar_width}] 请求中...  {label}\033[K",
+            file=sys.stderr, end="", flush=True,
+        )
         batch = list(_fetch_query(query, limit, cutoff, timeout_seconds, max_retries))
         for paper in batch:
             papers_by_id.setdefault(paper.arxiv_id, paper)
-        print(f"[Fetch] {label} → {len(batch)} 篇", file=sys.stderr, flush=True)
+        filled = int(index / total_queries * bar_width)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        print(
+            f"\r[Fetch] [{bar}] {index}/{total_queries}  累计 {len(papers_by_id)} 篇  {label} → {len(batch)} 篇\033[K",
+            file=sys.stderr, end="", flush=True,
+        )
         if index < total_queries and request_pause_seconds > 0:
             time.sleep(request_pause_seconds)
+    print("", file=sys.stderr, flush=True)  # final newline
 
     return sorted(
         papers_by_id.values(),
@@ -61,15 +70,9 @@ def fetch_recent_papers(
     )
 
 
-def _query_label(index: int, total: int, query: str, limit: int) -> str:
-    if index == 1 and total > 1:
-        kind = "分类"
-    elif "all:" in query:
-        keyword = query.split("all:")[1].split(" AND")[0].strip().strip('"')
-        kind = f"关键词 [{keyword}]"
-    else:
-        kind = "分类"
-    return f"[{index}/{total}] {kind} (max {limit})"
+def _query_label(query: str, limit: int) -> str:
+    keyword = query.split("all:")[1].split(" AND")[0].strip().strip('"')
+    return f"关键词 [{keyword}] (max {limit})"
 
 
 def _fetch_query(
@@ -169,7 +172,7 @@ def _retry_delay(response: requests.Response | None, attempt: int) -> int:
         retry_after = response.headers.get("Retry-After")
         if retry_after and retry_after.isdigit():
             return min(int(retry_after), 300)
-    return min(15 * (2 ** (attempt - 1)), 300)
+    return min(30 * (2 ** (attempt - 1)), 300)
 
 
 def _parse_arxiv_time(value: str) -> datetime:

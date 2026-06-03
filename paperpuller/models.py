@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -24,4 +24,9 @@ class Evaluation:
     topic_tags: list[str]
     reason: str
     tldr: str
+    slpr_challenges: list[str] = field(default_factory=list)
+    pipeline_components: list[str] = field(default_factory=list)
+    integration_path: str = ""
+    reproducibility: str = "unknown"
+    next_action: str = "skim"
 

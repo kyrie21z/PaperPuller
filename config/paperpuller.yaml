@@ -3,9 +3,18 @@ arxiv:
     - cs.CV
     - cs.AI
     - cs.LG
-  fetch_days: 60
+  fetch_days: 1
   max_candidates: 100
   request_pause_seconds: 15
+  keyword_queries:
+    - scene text recognition
+    - Chinese OCR
+    - masked autoencoder
+    - masked image modeling
+    - self-supervised visual pretraining
+    - vision-language text recognition
+    - data augmentation text recognition
+    - text image restoration
 
 interest_file: config/interest.md
 
