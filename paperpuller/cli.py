@@ -62,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.timeout_seconds is not None:
             config = replace(
                 config,
+                arxiv=replace(config.arxiv, timeout_seconds=args.timeout_seconds),
                 llm=replace(config.llm, timeout_seconds=args.timeout_seconds),
             )
         result = run_daily(config, no_email=args.no_email, skip_llm=args.skip_llm)

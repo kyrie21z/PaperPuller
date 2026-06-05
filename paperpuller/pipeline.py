@@ -38,8 +38,8 @@ def run_daily(config: AppConfig, no_email: bool = False, skip_llm: bool = False)
             keyword_queries=config.arxiv.keyword_queries,
             per_keyword_max_candidates=config.arxiv.per_keyword_max_candidates,
             request_pause_seconds=config.arxiv.request_pause_seconds,
-            timeout_seconds=config.llm.timeout_seconds,
-            max_retries=config.llm.max_retries,
+            timeout_seconds=config.arxiv.timeout_seconds,
+            max_retries=config.arxiv.max_retries,
         )
         new_count = db.upsert_papers(papers)
         _info(f"[Fetch] 共获取 {len(papers)} 篇，其中 {new_count} 篇为新论文")

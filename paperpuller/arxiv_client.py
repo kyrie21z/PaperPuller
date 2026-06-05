@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import sys
 from datetime import datetime, timedelta, timezone
 import time
@@ -93,20 +94,35 @@ def _fetch_query(
     headers = {"User-Agent": "PaperPuller/0.1 (local research paper digest)"}
     response = None
     retryable_statuses = {429, 500, 502, 503, 504}
-    attempts = max(max_retries, 6)
+    attempts = max(max_retries, 1)
+    last_status: int | None = None
     for attempt in range(1, attempts + 1):
         try:
             response = requests.get(url, params=params, headers=headers, timeout=timeout_seconds)
-        except requests.RequestException:
+        except requests.RequestException as exc:
             if attempt == attempts:
                 raise
-            time.sleep(_retry_delay(None, attempt))
+            delay = _retry_delay(None, attempt)
+            _log_retry(attempt, attempts, delay, f"请求异常: {exc}")
+            time.sleep(delay)
             continue
+
+        last_status = response.status_code
         if response.status_code not in retryable_statuses:
             break
+
         if attempt < attempts:
-            time.sleep(_retry_delay(response, attempt))
+            delay = _retry_delay(response, attempt)
+            _log_retry(attempt, attempts, delay, f"HTTP {response.status_code}")
+            time.sleep(delay)
+
     assert response is not None
+    if last_status is not None and last_status in retryable_statuses:
+        raise requests.exceptions.HTTPError(
+            f"arXiv API 持续返回 {last_status}，已重试 {attempts} 次均失败。"
+            f" 最后退避 {_retry_delay(response, attempts):.0f}s。"
+            f" URL: {response.request.url}"
+        )
     response.raise_for_status()
 
     root = ET.fromstring(response.text)
@@ -122,6 +138,13 @@ def _fetch_query(
             papers.append(paper)
 
     return papers
+
+
+def _log_retry(attempt: int, total: int, delay: float, reason: str) -> None:
+    print(
+        f"\r[Fetch] {reason}，第 {attempt}/{total} 次重试，等待 {delay:.0f}s...\033[K",
+        file=sys.stderr, end="", flush=True,
+    )
 
 
 def _parse_entry(entry: ET.Element) -> Paper:
@@ -167,12 +190,14 @@ def _text(element: ET.Element, name: str) -> str:
     return child.text.strip() if child is not None and child.text else ""
 
 
-def _retry_delay(response: requests.Response | None, attempt: int) -> int:
+def _retry_delay(response: requests.Response | None, attempt: int) -> float:
     if response is not None:
         retry_after = response.headers.get("Retry-After")
         if retry_after and retry_after.isdigit():
-            return min(int(retry_after), 300)
-    return min(30 * (2 ** (attempt - 1)), 300)
+            return min(float(retry_after), 300)
+    base = min(30 * (2 ** (attempt - 1)), 300)
+    jitter = random.uniform(0.75, 1.5)
+    return base * jitter
 
 
 def _parse_arxiv_time(value: str) -> datetime:

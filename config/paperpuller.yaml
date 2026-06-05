@@ -6,6 +6,8 @@ arxiv:
   fetch_days: 1
   max_candidates: 100
   request_pause_seconds: 15
+  max_retries: 6
+  timeout_seconds: 30
   keyword_queries:
     - scene text recognition
     - Chinese OCR

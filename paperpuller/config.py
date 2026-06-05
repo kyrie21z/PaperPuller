@@ -18,6 +18,8 @@ class ArxivConfig:
     keyword_queries: list[str]
     per_keyword_max_candidates: int
     request_pause_seconds: float
+    max_retries: int
+    timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,8 @@ def load_config(path: str | Path) -> AppConfig:
             keyword_queries=list(arxiv.get("keyword_queries") or DEFAULT_KEYWORD_QUERIES),
             per_keyword_max_candidates=int(arxiv.get("per_keyword_max_candidates", 50)),
             request_pause_seconds=float(arxiv.get("request_pause_seconds", 3)),
+            max_retries=int(arxiv.get("max_retries", 6)),
+            timeout_seconds=int(arxiv.get("timeout_seconds", 30)),
         ),
         llm=LlmConfig(
             base_url=str(llm.get("base_url", "https://api.openai.com/v1")),
