@@ -20,7 +20,7 @@ jobs:
         env:
           PAPERPULLER_API_KEY: ${{ secrets.PAPERPULLER_API_KEY }}
           PAPERPULLER_SMTP_PASSWORD: ${{ secrets.PAPERPULLER_SMTP_PASSWORD }}
-        run: python -m paperpuller run --config config/paperpuller.yaml --max-candidates 30 --per-keyword-max-candidates 20
+        run: python -m paperpuller run --config config/paperpuller.yaml --max-candidates 30 --per-keyword-max-candidates 20 --request-pause-seconds 30
       - name: Commit reports
         run: |
           git config user.name "github-actions[bot]"
